@@ -17,7 +17,7 @@ def get_coordinates(address):
         "crs": "epsg:4326",
         "address": address,
         "format": "json",
-        "type": "parcel",
+        "type": "parcel", # 도로명주소는 road, 지번주소는 parcel
         "key": apikey
     }
     response = requests.get(apiurl, params=params)
@@ -28,8 +28,7 @@ def get_coordinates(address):
             return point_info['x'], point_info['y']
     return None, None
 
-# Apply the function to the '주소' column and store the results
-data[['Longitude', 'Latitude']] = data['주소'].apply(lambda addr: pd.Series(get_coordinates(addr)))
+data[['경도', '위도']] = data['주소'].apply(lambda addr: pd.Series(get_coordinates(addr)))
 
 # Display the updated dataframe
 data.head()
