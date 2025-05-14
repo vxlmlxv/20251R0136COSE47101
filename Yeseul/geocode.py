@@ -25,7 +25,7 @@ def get_coordinates(address):
         data = response.json()
         if data['response']['status'] == 'OK':
             point_info = data['response']['result']['point']
-            return point_info['x'], point_info['y']
+            return point_info['x'], point_info['y'] # 경도(longitude), 위도(latitude)
     return None, None
 
 data[['경도', '위도']] = data['주소'].apply(lambda addr: pd.Series(get_coordinates(addr)))
