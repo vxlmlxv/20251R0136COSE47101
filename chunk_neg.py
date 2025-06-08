@@ -1,84 +1,95 @@
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 import os
 import time
-import logging
+from tqdm import tqdm
+from sklearn.neighbors import BallTree
 
-# 설정
-chunk_size = 100000
-n_chunks = 30
-output_dir = "random_chunks"
-os.makedirs(output_dir, exist_ok=True)
+# 🌐 Haversine 거리 기반 BallTree
+EARTH_RADIUS = 6371000  # meters
 
-# 로그 설정
-logging.basicConfig(filename='log_random_chunk.txt', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+def build_tree(df):
+    coords_rad = np.radians(df[['위도', '경도']].values)
+    return BallTree(coords_rad, metric='haversine')
 
-# 데이터 로드
-parks = pd.read_csv("parks.csv")
+def query_radius(tree, point, radius_m):
+    point_rad = np.radians([point])
+    ind = tree.query_radius(point_rad, r=radius_m / EARTH_RADIUS)
+    return ind[0]
+
+# 📂 데이터 로딩
+parks = pd.read_csv("src/parks_mod.csv")
 cctv = pd.read_csv("cctv.csv")
 
-# 거리 계산 함수
-def haversine_np(lon1, lat1, lon2, lat2):
-    R = 6371000
-    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = np.sin(dlat / 2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon / 2)**2
-    return 2 * R * np.arcsin(np.sqrt(a))
+# 📌 결측치 처리
+for col in ['평일시작', '평일종료', '토요일시작', '토요일종료', '공휴일시작', '공휴일종료']:
+    parks[col] = parks[col].fillna(0)
 
-# 생성 시작
+# 📁 출력 폴더 생성
+os.makedirs("result_chunks_label0_fast", exist_ok=True)
+
+# 🧭 좌표 검색용 BallTree 구성
+park_tree = build_tree(parks)
+cctv_tree = build_tree(cctv)
+
+# 🔧 설정값
+chunk_size = 5000
+num_samples = 300000
+n_chunks = (num_samples // chunk_size) + 1
 np.random.seed(42)
 
-for chunk_id in range(n_chunks):
-    print(f"🚧 청크 {chunk_id} 처리 중...")
-    start = time.time()
+print("🚀 랜덤 label=0 샘플 생성 시작")
 
-    # 무작위로 주차장 위치 선택
-    sampled_parks = parks.sample(n=chunk_size, replace=True).reset_index(drop=True)
-    lat_offset = np.random.uniform(-0.0015, 0.0015, chunk_size)
-    lon_offset = np.random.uniform(-0.0015, 0.0015, chunk_size)
-
-    points = pd.DataFrame({
-        '위도': sampled_parks['위도'] + lat_offset,
-        '경도': sampled_parks['경도'] + lon_offset,
-        '요일': np.random.choice(['Weekday', 'Saturday', 'Holiday'], size=chunk_size)
-    })
-
+for i in range(n_chunks):
     results = []
+    for _ in tqdm(range(chunk_size), desc=f"Chunk {i+1} 처리 중"):
+        for _ in range(10):  # 최대 10회 재시도
+            park = parks.sample(1).iloc[0]
+            lat = park['위도'] + np.random.uniform(-0.0015, 0.0015)
+            lon = park['경도'] + np.random.uniform(-0.0015, 0.0015)
+            hour = np.random.randint(7, 23)
+            day = np.random.choice(['Weekday', 'Saturday', 'Holiday'])
 
-    for i in tqdm(range(chunk_size), desc=f"청크 {chunk_id} 생성 중"):
-        try:
-            r_lat, r_lon = points.loc[i, '위도'], points.loc[i, '경도']
-            d_parks = haversine_np(r_lon, r_lat, parks['경도'].values, parks['위도'].values)
-            d_cctvs = haversine_np(r_lon, r_lat, cctv['경도'].values, cctv['위도'].values)
-            nearby_parks = parks[d_parks <= 300]
+            idx = query_radius(park_tree, [lat, lon], 500)
+            nearby_parks = parks.iloc[idx].copy()
 
-            def get_fee_hours(row):
-                if row['평일유료'] == 'Y':
-                    return row['1시간 요금'], row['평일운영시간']
-                return 0, 0
+            if day == 'Weekday':
+                nearby_parks = nearby_parks[
+                    (nearby_parks['평일시작'] <= hour) & (nearby_parks['평일종료'] > hour)
+                ]
+                hours = nearby_parks['평일운영시간']
+            elif day == 'Saturday':
+                nearby_parks = nearby_parks[
+                    (nearby_parks['토요일시작'] <= hour) & (nearby_parks['토요일종료'] > hour)
+                ]
+                hours = nearby_parks['토요일운영시간']
+            else:
+                nearby_parks = nearby_parks[
+                    (nearby_parks['공휴일시작'] <= hour) & (nearby_parks['공휴일종료'] > hour)
+                ]
+                hours = nearby_parks['공휴일운영시간']
 
-            fee_hours = nearby_parks.apply(get_fee_hours, axis=1, result_type='expand')
-            avg_fee = fee_hours[0].mean() if not fee_hours.empty else 0
-            avg_hours = fee_hours[1].mean() if not fee_hours.empty else 0
+            if len(nearby_parks) == 0:
+                continue
+
+            idx_cctv = query_radius(cctv_tree, [lat, lon], 500)
+            cctv_count = len(idx_cctv)
+
             total_spaces = nearby_parks['총주차면'].sum()
-            cctv_count = np.sum(d_cctvs <= 300)
+            avg_fee = nearby_parks['1시간 요금'].replace(-4, np.nan).mean()
+            avg_hours = hours.replace(-4, np.nan).mean()
 
             results.append({
-                '총주차면수': total_spaces,
-                '평균요금': avg_fee,
-                '평균운영시간': avg_hours,
-                'CCTV개수': cctv_count,
-                '민원발생': 0,
-                '위도': r_lat,      # ✅ 추가
-                '경도': r_lon       # ✅ 추가
+                "총주차면수": total_spaces,
+                "평균요금": avg_fee,
+                "평균운영시간": avg_hours,
+                "CCTV개수": cctv_count,
+                "위도": lat,
+                "경도": lon,
+                "민원발생": 0
             })
+            break  # 조건 만족 시 break
 
-        except Exception as e:
-            logging.error(f"[청크 {chunk_id} index {i}] 오류 발생: {e}")
+    pd.DataFrame(results).to_csv(f"result_chunks_label0_fast/results_part_{i}.csv", index=False)
 
-    df_chunk = pd.DataFrame(results)
-    df_chunk.to_csv(f"{output_dir}/negative_part_{chunk_id}.csv", index=False)
-    print(f"✅ 청크 {chunk_id} 저장 완료 ({len(df_chunk)}개), 소요 시간: {time.time() - start:.2f}초")
+print("✅ 모든 랜덤 샘플 생성 완료")

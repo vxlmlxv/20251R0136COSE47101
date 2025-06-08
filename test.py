@@ -1,33 +1,53 @@
 import pandas as pd
-import numpy as np
+import glob
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# 필요한 파일 불러오기
-df_chunk = pd.read_csv("result_chunks_2/results_part_0.csv")  # ⬅️ 분석 대상 청크
-parks = pd.read_csv("parks.csv")
+# macOS 기준
+plt.rcParams['font.family'] = 'AppleGothic'
+plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
 
-# Haversine 거리 계산 함수
-def haversine_np(lon1, lat1, lon2, lat2):
-    R = 6371000
-    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    return 2 * R * np.arcsin(np.sqrt(a))
+# 📁 파일 병합
+positive_files = glob.glob("result_chunks_filtered/results_part_*.csv")
+negative_files = glob.glob("random_chunks_label0/negative_part_*.csv")
 
-# 운영시간 평균이 1.0인 민원 추출
-df_target = df_chunk[df_chunk['평균운영시간'] == 1.0]
+dfs = []
+for file in positive_files + negative_files:
+    try:
+        df = pd.read_csv(file)
+        dfs.append(df)
+    except:
+        continue
 
-print(f"🎯 평균운영시간 1.0인 민원 수: {len(df_target)}")
+full_df = pd.concat(dfs, ignore_index=True).dropna()
 
-for idx, row in df_target.iterrows():
-    lat, lon = row['위도'], row['경도']
-    distances = haversine_np(lon, lat, parks['경도'].values, parks['위도'].values)
-    nearby_parks = parks[distances <= 500].copy()
+# 🎯 관심 변수
+cols = ['총주차면수', '평균요금', '평균운영시간', 'CCTV개수', '민원발생']
 
-    print(f"\n📍 민원 위치 (위도: {lat}, 경도: {lon})")
-    print(f"반경 500m 이내 주차장 개수: {len(nearby_parks)}")
+# 📌 상관관계 히트맵
+sns.heatmap(full_df[cols].corr(), annot=True, cmap='coolwarm')
+plt.title("📊 Pearson Correlation Heatmap")
+plt.show()
 
-    if not nearby_parks.empty:
-        display_cols = ['총주차면', '평일운영시간', '토요일운영시간', '공휴일운영시간',
-                        '평일유료', '토요일유료', '공휴일유료', '1시간 요금']
-        print(nearby_parks[display_cols])
+# 📌 민원발생 기준 평균값 비교
+grouped = full_df[cols].groupby('민원발생').mean().T
+grouped.plot(kind='barh', figsize=(8, 5), legend=True, title='Mean by 민원발생')
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# 📌 산점도 행렬 (pairplot)
+sns.pairplot(full_df[cols], hue="민원발생", palette="Set2")
+plt.suptitle("🔍 Pairwise Scatter Matrix (민원발생 별)", y=1.02)
+plt.show()
+
+# 📌 조건부 민원 비율 분석 (예: 평균요금 x CCTV 개수)
+full_df['요금_bin'] = pd.qcut(full_df['평균요금'], 3, labels=["낮음", "중간", "높음"])
+full_df['CCTV_bin'] = pd.cut(full_df['CCTV개수'], bins=[-1,1,3,100], labels=["적음", "중간", "많음"])
+
+pivot = pd.pivot_table(full_df, values='민원발생',
+                       index='요금_bin', columns='CCTV_bin', aggfunc='mean')
+
+sns.heatmap(pivot, annot=True, cmap="YlOrRd", fmt=".2f")
+plt.title("📌 민원발생률 (평균요금 x CCTV 개수)")
+plt.show()
