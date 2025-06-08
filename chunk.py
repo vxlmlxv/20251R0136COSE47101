@@ -53,7 +53,7 @@ for i in range(n_chunks):
             r_lat, r_lon = report['위도'], report['경도']
             d_parks = haversine_np(r_lon, r_lat, parks['경도'].values, parks['위도'].values)
             d_cctvs = haversine_np(r_lon, r_lat, cctv['경도'].values, cctv['위도'].values)
-            nearby_parks = parks[d_parks <= 300]
+            nearby_parks = parks[d_parks <= 500]
 
             # 요일 처리 함수 (Weekday, Saturday, Holiday만 처리)
             def get_fee_hours(park_row):
@@ -82,7 +82,7 @@ for i in range(n_chunks):
             total_spaces = nearby_parks['총주차면'].sum()
             avg_fee = np.mean([fh[0] for fh in fees_hours]) if len(fees_hours) > 0 else 0
             avg_hours = np.mean([fh[1] for fh in fees_hours]) if len(fees_hours) > 0 else 0
-            cctv_count = np.sum(d_cctvs <= 300)
+            cctv_count = np.sum(d_cctvs <= 500)
             
             results.append({
                 '총주차면수': total_spaces,

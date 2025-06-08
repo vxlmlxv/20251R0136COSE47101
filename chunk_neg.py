@@ -71,7 +71,7 @@ for chunk_id in range(n_chunks):
                 '평균요금': avg_fee,
                 '평균운영시간': avg_hours,
                 'CCTV개수': cctv_count,
-                '민원발생': 1,
+                '민원발생': 0,
                 '위도': r_lat,      # ✅ 추가
                 '경도': r_lon       # ✅ 추가
             })
