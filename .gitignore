@@ -1,1 +1,2 @@
-test/
+# Shapefile 관련 파일 모두 무시
+src/dong_boundary.*
