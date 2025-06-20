@@ -1,4 +1,0 @@
-2025-06-06 13:17:17,560 - ERROR - 회귀 분석 실패: Singular matrix
-2025-06-06 13:17:52,508 - ERROR - 회귀 분석 실패: Singular matrix
-2025-06-06 13:18:36,215 - ERROR - 회귀 분석 실패: Singular matrix
-2025-06-06 13:19:21,169 - ERROR - 회귀 분석 실패: Singular matrix
